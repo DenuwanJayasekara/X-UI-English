@@ -210,12 +210,24 @@ check_config() {
         return 1
     fi
     
-    # Parse database info and display nicely
-    port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2)
-    listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2)
-    username=$(echo "$panel_info" | grep "^username:" | cut -d: -f2)
-    protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2)
-    base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2)
+    # Parse database info and display nicely - trim whitespace
+    port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2 | tr -d '[:space:]')
+    listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2 | tr -d '[:space:]')
+    username=$(echo "$panel_info" | grep "^username:" | cut -d: -f2 | tr -d '[:space:]')
+    protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2 | tr -d '[:space:]')
+    base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2 | tr -d '[:space:]')
+    
+    # Ensure port is valid
+    if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        # Re-read port directly from database as fallback
+        local db_path="/etc/x-ui/x-ui.db"
+        if [[ -f "$db_path" ]] && command -v sqlite3 &> /dev/null; then
+            port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null | tr -d '[:space:]')
+        fi
+        if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+            port="54321"  # final fallback
+        fi
+    fi
     
     # Get server IP
     if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]]; then
@@ -448,10 +460,15 @@ get_panel_info_from_db() {
         return 1
     fi
     
-    # Get port
-    local port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null)
-    if [[ -z "$port" ]]; then
+    # Get port - ensure we get the actual configured port
+    local port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null | tr -d '[:space:]')
+    if [[ -z "$port" ]] || [[ "$port" == "NULL" ]] || [[ "$port" == "" ]]; then
+        # Try to get from default value if not set
         port="54321"  # default
+    fi
+    # Ensure port is numeric
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        port="54321"  # fallback to default if invalid
     fi
     
     # Get listen address
@@ -517,18 +534,30 @@ show_web_ui_url() {
     fi
     
     # Check if output is from database (key:value format) or from -show flag (formatted text)
-    if echo "$panel_info" | grep -q "port:"; then
-        # Database format
-        port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2)
-        listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2)
-        protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2)
-        base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2)
+    if echo "$panel_info" | grep -q "^port:"; then
+        # Database format - extract and trim whitespace
+        port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2 | tr -d '[:space:]')
+        listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2 | tr -d '[:space:]')
+        protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2 | tr -d '[:space:]')
+        base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2 | tr -d '[:space:]')
     else
         # -show flag format
-        port=$(echo "$panel_info" | grep -i "Panel Port:" | awk '{print $3}')
-        listen=$(echo "$panel_info" | grep -i "Server IP:" | awk '{print $3}')
-        protocol=$(echo "$panel_info" | grep -i "Access Panel:" | grep -o "http[s]*" | head -1)
-        base_path=$(echo "$panel_info" | grep -i "Access Panel:" | grep -oP '://[^:]+:\d+\K.*' | head -1)
+        port=$(echo "$panel_info" | grep -i "Panel Port:" | awk '{print $3}' | tr -d '[:space:]')
+        listen=$(echo "$panel_info" | grep -i "Server IP:" | awk '{print $3}' | tr -d '[:space:]')
+        protocol=$(echo "$panel_info" | grep -i "Access Panel:" | grep -o "http[s]*" | head -1 | tr -d '[:space:]')
+        base_path=$(echo "$panel_info" | grep -i "Access Panel:" | grep -oP '://[^:]+:\d+\K.*' | head -1 | tr -d '[:space:]')
+    fi
+    
+    # Ensure port is valid and numeric
+    if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        # Try to get port directly from database as fallback
+        local db_path="/etc/x-ui/x-ui.db"
+        if [[ -f "$db_path" ]] && command -v sqlite3 &> /dev/null; then
+            port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null | tr -d '[:space:]')
+        fi
+        if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
+            port="54321"  # final fallback
+        fi
     fi
     
     if [[ -n "$port" && "$port" != "0" ]]; then
