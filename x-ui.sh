@@ -113,7 +113,20 @@ update() {
         fi
         return 0
     fi
-    bash <(curl -Ls https://raw.githubusercontent.com/DenuwanJayasekara/X-UI-English/main/install.sh)
+    
+    echo ""
+    LOGD "Choose update method:"
+    echo "  1) Download pre-built binary from vaxilu/x-ui (faster, but won't have latest custom features)"
+    echo "  2) Build from source from your repository (slower, includes all your custom features)"
+    read -p "Please select [1-2]: " update_method
+    
+    if [[ "$update_method" == "2" ]]; then
+        LOGI "Building from source..."
+        BUILD_FROM_SOURCE=true bash <(curl -Ls https://raw.githubusercontent.com/DenuwanJayasekara/X-UI-English/main/install.sh) build
+    else
+        bash <(curl -Ls https://raw.githubusercontent.com/DenuwanJayasekara/X-UI-English/main/install.sh)
+    fi
+    
     if [[ $? == 0 ]]; then
         LOGI "Update completed, panel has been automatically restarted "
         exit 0
