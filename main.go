@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -49,6 +50,10 @@ func runWebServer() {
 		log.Println(err)
 		return
 	}
+
+	// Display panel status after server starts
+	settingService := service.SettingService{}
+	displayPanelStatus(settingService)
 
 	sigCh := make(chan os.Signal, 1)
 	// Signal capture handling
@@ -176,6 +181,103 @@ func updateTgbotSetting(tgBotToken string, tgBotChatid int, tgBotRuntime string)
 	}
 }
 
+func getServerIP() string {
+	netInterfaces, err := net.Interfaces()
+	if err != nil {
+		return "Unknown"
+	}
+
+	for i := 0; i < len(netInterfaces); i++ {
+		if (netInterfaces[i].Flags & net.FlagUp) != 0 {
+			addrs, _ := netInterfaces[i].Addrs()
+
+			for _, address := range addrs {
+				if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+					if ipnet.IP.To4() != nil {
+						return ipnet.IP.String()
+					}
+				}
+			}
+		}
+	}
+	return "Unknown"
+}
+
+func displayPanelStatus(settingService service.SettingService) {
+	fmt.Println()
+	fmt.Println("==========================================")
+	fmt.Println("     Panel Service Status")
+	fmt.Println("==========================================")
+	
+	// Get listen address
+	listen, err := settingService.GetListen()
+	if err != nil {
+		listen = "0.0.0.0"
+	}
+	if listen == "" {
+		listen = "0.0.0.0"
+	}
+	
+	// Get port
+	port, err := settingService.GetPort()
+	if err != nil {
+		port = 54321
+	}
+	
+	// Get server IP
+	serverIP := getServerIP()
+	if listen != "0.0.0.0" && listen != "" {
+		serverIP = listen
+	}
+	
+	// Get user info
+	userService := service.UserService{}
+	userModel, err := userService.GetFirstUser()
+	username := "Not set"
+	if err == nil && userModel.Username != "" {
+		username = userModel.Username
+	}
+	
+	// Get xray status
+	xrayService := service.XrayService{}
+	xrayRunning := xrayService.IsXrayRunning()
+	xrayStatus := "Stopped"
+	if xrayRunning {
+		xrayStatus = "Running"
+	}
+	
+	fmt.Printf("Panel Status:     Running\n")
+	fmt.Printf("Xray Status:      %s\n", xrayStatus)
+	fmt.Printf("Server IP:       %s\n", serverIP)
+	fmt.Printf("Panel Port:       %d\n", port)
+	fmt.Printf("Username:        %s\n", username)
+	
+	// Determine protocol
+	certFile, _ := settingService.GetCertFile()
+	keyFile, _ := settingService.GetKeyFile()
+	protocol := "http"
+	if certFile != "" || keyFile != "" {
+		protocol = "https"
+	}
+	
+	// Get base path
+	basePath, _ := settingService.GetBasePath()
+	if basePath == "" {
+		basePath = "/"
+	}
+	
+	fmt.Println()
+	fmt.Println("Access Panel:")
+	if listen == "0.0.0.0" || listen == "" {
+		fmt.Printf("  Local:   %s://localhost:%d%s\n", protocol, port, basePath)
+		fmt.Printf("  Network: %s://%s:%d%s\n", protocol, serverIP, port, basePath)
+	} else {
+		fmt.Printf("  %s://%s:%d%s\n", protocol, serverIP, port, basePath)
+	}
+	fmt.Println("==========================================")
+	fmt.Println()
+}
+
 func updateSetting(port int, username string, password string) {
 	err := database.InitDB(config.GetDBPath())
 	if err != nil {
@@ -184,13 +286,15 @@ func updateSetting(port int, username string, password string) {
 	}
 
 	settingService := service.SettingService{}
+	hasChanges := false
 
 	if port > 0 {
 		err := settingService.SetPort(port)
 		if err != nil {
 			fmt.Println("set port failed:", err)
 		} else {
-			fmt.Printf("set port %v success", port)
+			fmt.Printf("set port %v success\n", port)
+			hasChanges = true
 		}
 	}
 	if username != "" || password != "" {
@@ -200,7 +304,12 @@ func updateSetting(port int, username string, password string) {
 			fmt.Println("set username and password failed:", err)
 		} else {
 			fmt.Println("set username and password success")
+			hasChanges = true
 		}
+	}
+	
+	if hasChanges {
+		displayPanelStatus(settingService)
 	}
 }
 
