@@ -1,3 +1,13 @@
+# X-UI-English
+
+**English Translation of X-UI Web Panel**
+
+This is a fully translated English version of the [X-UI](https://github.com/vaxilu/x-ui) project. All user-facing Chinese text has been translated to English, making the panel accessible to English-speaking users.
+
+> **Original Project**: [vaxilu/x-ui](https://github.com/vaxilu/x-ui)
+
+---
+
 # x-ui
 
 Multi-protocol multi-user xray panel
@@ -16,18 +26,22 @@ Multi-protocol multi-user xray panel
 
 # Installation & Update
 
-```
-bash <(curl -Ls https://raw.githubusercontent.com/vaxilu/x-ui/master/install.sh)
+## Quick Install (Recommended)
+
+Download and install the English translated version:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/DenuwanJayasekara/X-UI-English/main/install.sh)
 ```
 
 ## Manual Installation & Update
 
-1. First download the latest archive from https://github.com/vaxilu/x-ui/releases, generally choose `amd64` architecture
-2. Upload this archive to the server's `/root/` directory and log in to the server with `root` user
+1. Download the latest release from [GitHub Releases](https://github.com/DenuwanJayasekara/X-UI-English/releases), generally choose `amd64` architecture
+2. Upload the archive to your server's `/root/` directory and log in with `root` user
 
 > If your server CPU architecture is not `amd64`, replace `amd64` in the command with other architectures
 
-```
+```bash
 cd /root/
 rm x-ui/ /usr/local/x-ui/ /usr/bin/x-ui -rf
 tar zxvf x-ui-linux-amd64.tar.gz
@@ -116,6 +130,7 @@ Telegram notification content:
 - Traffic warning reminders  
 
 More features planned...
+
 ## Recommended Systems
 
 - CentOS 7+
@@ -130,13 +145,26 @@ First install the latest version of x-ui on the server where v2-ui is installed,
 
 > After successful migration, please `close v2-ui` and `restart x-ui`, otherwise v2-ui's inbound will conflict with x-ui's inbound causing `port conflicts`
 
-```
+```bash
 x-ui v2-ui
 ```
 
-## Issue Closing
+## What's Different in This Version?
 
-Various beginner questions are very frustrating
+This is the **English translation** of the original X-UI project. All user-facing text has been translated from Chinese to English, including:
+- All HTML templates and UI elements
+- Error messages and notifications
+- Shell script messages
+- Documentation
+
+The functionality remains identical to the original project. Chinese language support is still available through the i18n system.
+
+## Credits
+
+- **Original Project**: [vaxilu/x-ui](https://github.com/vaxilu/x-ui)
+- **English Translation**: This repository
+
+---
 
 ## Stargazers over time
 
