@@ -39,7 +39,3 @@ bash <(curl -Ls https://raw.githubusercontent.com/DenuwanJayasekara/X-UI-English
 - **English Translation**: This repository
 
 ---
-
-## Stargazers over time
-
-[![Stargazers over time](https://starchart.cc/vaxilu/x-ui.svg)](https://starchart.cc/vaxilu/x-ui)
