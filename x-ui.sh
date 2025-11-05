@@ -172,42 +172,72 @@ reset_config() {
 }
 
 check_config() {
+    # Try to get info using -show flag first
     info=$(/usr/local/x-ui/x-ui setting -show 2>&1)
     exit_code=$?
     
-    if [[ $exit_code != 0 ]]; then
-        # Check if it's the flag error
-        if echo "$info" | grep -q "flag provided but not defined"; then
-            LOGE "The -show flag is not available in this version."
-            LOGE "Please update x-ui to the latest version to use this feature."
-            echo ""
-            LOGI "Trying alternative method..."
-            # Fallback: try to get basic info
-            port=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null | grep -i "port" | head -1 || echo "")
-            if [[ -z "$port" ]]; then
-                LOGE "Unable to retrieve panel settings. Please check if x-ui is properly installed."
-            fi
-        else
-            LOGE "get current settings error, please check logs"
-            echo "$info"
-        fi
+    if [[ $exit_code == 0 && -n "$info" && ! "$info" =~ "flag provided but not defined" ]]; then
+        # Success with -show flag
+        echo ""
+        echo "$info"
+        echo ""
+        return 0
+    fi
+    
+    # Fallback to reading from database
+    LOGI "Reading panel settings from database..."
+    echo ""
+    
+    panel_info=$(get_panel_info_from_db)
+    if [[ $? != 0 ]]; then
+        LOGE "Unable to retrieve panel settings. Please check if x-ui is properly installed and sqlite3 is available."
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
         return 1
     fi
     
-    if [[ -z "$info" ]]; then
-        LOGE "No settings information returned"
-        if [[ $# == 0 ]]; then
-            before_show_menu
+    # Parse database info and display nicely
+    port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2)
+    listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2)
+    username=$(echo "$panel_info" | grep "^username:" | cut -d: -f2)
+    protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2)
+    base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2)
+    
+    # Get server IP
+    if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]]; then
+        server_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+        if [[ -z "$server_ip" ]]; then
+            server_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
         fi
-        return 1
+        if [[ -z "$server_ip" ]]; then
+            server_ip="localhost"
+        fi
+    else
+        server_ip="$listen"
     fi
     
+    echo "=========================================="
+    echo "     Panel Service Status"
+    echo "=========================================="
+    echo "Panel Status:     Running"
+    echo "Server IP:       $server_ip"
+    echo "Panel Port:       $port"
+    echo "Username:        $username"
     echo ""
-    echo "$info"
+    echo "Access Panel:"
+    if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]]; then
+        echo "  Local:   ${protocol}://localhost:${port}${base_path}"
+        echo "  Network: ${protocol}://${server_ip}:${port}${base_path}"
+    else
+        echo "  ${protocol}://${server_ip}:${port}${base_path}"
+    fi
+    echo "=========================================="
     echo ""
+    
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
 }
 
 set_port() {
@@ -393,17 +423,73 @@ check_install() {
     fi
 }
 
+get_panel_info_from_db() {
+    local db_path="/etc/x-ui/x-ui.db"
+    
+    if [[ ! -f "$db_path" ]]; then
+        return 1
+    fi
+    
+    # Check if sqlite3 is available
+    if ! command -v sqlite3 &> /dev/null; then
+        return 1
+    fi
+    
+    # Get port
+    local port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null)
+    if [[ -z "$port" ]]; then
+        port="54321"  # default
+    fi
+    
+    # Get listen address
+    local listen=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webListen';" 2>/dev/null)
+    if [[ -z "$listen" ]]; then
+        listen="0.0.0.0"
+    fi
+    
+    # Get username
+    local username=$(sqlite3 "$db_path" "SELECT username FROM user LIMIT 1;" 2>/dev/null)
+    if [[ -z "$username" ]]; then
+        username="admin"
+    fi
+    
+    # Get cert files to determine protocol
+    local cert_file=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webCertFile';" 2>/dev/null)
+    local key_file=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webKeyFile';" 2>/dev/null)
+    local protocol="http"
+    if [[ -n "$cert_file" && -n "$key_file" ]]; then
+        protocol="https"
+    fi
+    
+    # Get base path
+    local base_path=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webBasePath';" 2>/dev/null)
+    if [[ -z "$base_path" ]]; then
+        base_path="/"
+    fi
+    
+    echo "port:$port"
+    echo "listen:$listen"
+    echo "username:$username"
+    echo "protocol:$protocol"
+    echo "base_path:$base_path"
+    return 0
+}
+
 get_panel_info() {
     if [[ ! -f /usr/local/x-ui/x-ui ]]; then
         return 1
     fi
     
+    # Try -show flag first (for newer versions)
     info=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null)
     if [[ $? == 0 && -n "$info" ]]; then
         echo "$info"
         return 0
     fi
-    return 1
+    
+    # Fallback to database reading
+    get_panel_info_from_db
+    return $?
 }
 
 show_web_ui_url() {
@@ -413,37 +499,51 @@ show_web_ui_url() {
     fi
     
     panel_info=$(get_panel_info)
-    if [[ $? == 0 ]]; then
-        # Extract port, IP, and protocol from panel info
+    if [[ $? != 0 ]]; then
+        return
+    fi
+    
+    # Check if output is from database (key:value format) or from -show flag (formatted text)
+    if echo "$panel_info" | grep -q "port:"; then
+        # Database format
+        port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2)
+        listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2)
+        protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2)
+        base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2)
+    else
+        # -show flag format
         port=$(echo "$panel_info" | grep -i "Panel Port:" | awk '{print $3}')
         listen=$(echo "$panel_info" | grep -i "Server IP:" | awk '{print $3}')
         protocol=$(echo "$panel_info" | grep -i "Access Panel:" | grep -o "http[s]*" | head -1)
-        
-        if [[ -n "$port" && "$port" != "0" ]]; then
-            if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]] || [[ "$listen" == "Unknown" ]]; then
-                # Get server IP
-                server_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-                if [[ -z "$server_ip" ]]; then
-                    server_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
-                fi
-                if [[ -z "$server_ip" ]]; then
-                    server_ip="localhost"
-                fi
-            else
-                server_ip="$listen"
+        base_path=$(echo "$panel_info" | grep -i "Access Panel:" | grep -oP '://[^:]+:\d+\K.*' | head -1)
+    fi
+    
+    if [[ -n "$port" && "$port" != "0" ]]; then
+        if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]] || [[ "$listen" == "Unknown" ]]; then
+            # Get server IP
+            server_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+            if [[ -z "$server_ip" ]]; then
+                server_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
             fi
-            
-            if [[ -z "$protocol" ]]; then
-                protocol="http"
+            if [[ -z "$server_ip" ]]; then
+                server_ip=$(hostname -i 2>/dev/null | awk '{print $1}')
             fi
-            
-            base_path=$(echo "$panel_info" | grep -i "Access Panel:" | grep -oP '://[^:]+:\d+\K.*' | head -1)
-            if [[ -z "$base_path" ]]; then
-                base_path="/"
+            if [[ -z "$server_ip" ]]; then
+                server_ip="localhost"
             fi
-            
-            echo -e "Web UI URL:       ${green}${protocol}://${server_ip}:${port}${base_path}${plain}"
+        else
+            server_ip="$listen"
         fi
+        
+        if [[ -z "$protocol" ]]; then
+            protocol="http"
+        fi
+        
+        if [[ -z "$base_path" ]]; then
+            base_path="/"
+        fi
+        
+        echo -e "Web UI URL:       ${green}${protocol}://${server_ip}:${port}${base_path}${plain}"
     fi
 }
 
