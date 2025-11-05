@@ -184,87 +184,6 @@ reset_config() {
     confirm_restart
 }
 
-check_config() {
-    # Try to get info using -show flag first
-    info=$(/usr/local/x-ui/x-ui setting -show 2>&1)
-    exit_code=$?
-    
-    if [[ $exit_code == 0 && -n "$info" && ! "$info" =~ "flag provided but not defined" ]]; then
-        # Success with -show flag
-        echo ""
-        echo "$info"
-        echo ""
-        return 0
-    fi
-    
-    # Fallback to reading from database
-    LOGI "Reading panel settings from database..."
-    echo ""
-    
-    panel_info=$(get_panel_info_from_db)
-    if [[ $? != 0 ]]; then
-        LOGE "Unable to retrieve panel settings. Please check if x-ui is properly installed and sqlite3 is available."
-        if [[ $# == 0 ]]; then
-            before_show_menu
-        fi
-        return 1
-    fi
-    
-    # Parse database info and display nicely - trim whitespace
-    port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2 | tr -d '[:space:]')
-    listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2 | tr -d '[:space:]')
-    username=$(echo "$panel_info" | grep "^username:" | cut -d: -f2 | tr -d '[:space:]')
-    protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2 | tr -d '[:space:]')
-    base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2 | tr -d '[:space:]')
-    
-    # Ensure port is valid
-    if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
-        # Re-read port directly from database as fallback
-        local db_path="/etc/x-ui/x-ui.db"
-        if [[ -f "$db_path" ]] && command -v sqlite3 &> /dev/null; then
-            port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null | tr -d '[:space:]')
-        fi
-        if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
-            port="54321"  # final fallback
-        fi
-    fi
-    
-    # Get server IP
-    if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]]; then
-        server_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-        if [[ -z "$server_ip" ]]; then
-            server_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
-        fi
-        if [[ -z "$server_ip" ]]; then
-            server_ip="localhost"
-        fi
-    else
-        server_ip="$listen"
-    fi
-    
-    echo "=========================================="
-    echo "     Panel Service Status"
-    echo "=========================================="
-    echo "Panel Status:     Running"
-    echo "Server IP:       $server_ip"
-    echo "Panel Port:       $port"
-    echo "Username:        $username"
-    echo ""
-    echo "Access Panel:"
-    if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]]; then
-        echo "  Local:   ${protocol}://localhost:${port}${base_path}"
-        echo "  Network: ${protocol}://${server_ip}:${port}${base_path}"
-    else
-        echo "  ${protocol}://${server_ip}:${port}${base_path}"
-    fi
-    echo "=========================================="
-    echo ""
-    
-    if [[ $# == 0 ]]; then
-        before_show_menu
-    fi
-}
-
 set_port() {
     echo && echo -n -e "Enter port number [1-65535]: " && read port
     if [[ -z "${port}" ]]; then
@@ -448,147 +367,6 @@ check_install() {
     fi
 }
 
-get_panel_info_from_db() {
-    local db_path="/etc/x-ui/x-ui.db"
-    
-    if [[ ! -f "$db_path" ]]; then
-        return 1
-    fi
-    
-    # Check if sqlite3 is available
-    if ! command -v sqlite3 &> /dev/null; then
-        return 1
-    fi
-    
-    # Get port - ensure we get the actual configured port
-    local port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null | tr -d '[:space:]')
-    if [[ -z "$port" ]] || [[ "$port" == "NULL" ]] || [[ "$port" == "" ]]; then
-        # Try to get from default value if not set
-        port="54321"  # default
-    fi
-    # Ensure port is numeric
-    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
-        port="54321"  # fallback to default if invalid
-    fi
-    
-    # Get listen address
-    local listen=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webListen';" 2>/dev/null)
-    if [[ -z "$listen" ]]; then
-        listen="0.0.0.0"
-    fi
-    
-    # Get username
-    local username=$(sqlite3 "$db_path" "SELECT username FROM user LIMIT 1;" 2>/dev/null)
-    if [[ -z "$username" ]]; then
-        username="admin"
-    fi
-    
-    # Get cert files to determine protocol
-    local cert_file=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webCertFile';" 2>/dev/null)
-    local key_file=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webKeyFile';" 2>/dev/null)
-    local protocol="http"
-    if [[ -n "$cert_file" && -n "$key_file" ]]; then
-        protocol="https"
-    fi
-    
-    # Get base path
-    local base_path=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webBasePath';" 2>/dev/null)
-    if [[ -z "$base_path" ]]; then
-        base_path="/"
-    fi
-    
-    echo "port:$port"
-    echo "listen:$listen"
-    echo "username:$username"
-    echo "protocol:$protocol"
-    echo "base_path:$base_path"
-    return 0
-}
-
-get_panel_info() {
-    if [[ ! -f /usr/local/x-ui/x-ui ]]; then
-        return 1
-    fi
-    
-    # Try -show flag first (for newer versions)
-    info=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null)
-    if [[ $? == 0 && -n "$info" ]]; then
-        echo "$info"
-        return 0
-    fi
-    
-    # Fallback to database reading
-    get_panel_info_from_db
-    return $?
-}
-
-show_web_ui_url() {
-    check_status
-    if [[ $? != 0 ]]; then
-        return
-    fi
-    
-    panel_info=$(get_panel_info)
-    if [[ $? != 0 ]]; then
-        return
-    fi
-    
-    # Check if output is from database (key:value format) or from -show flag (formatted text)
-    if echo "$panel_info" | grep -q "^port:"; then
-        # Database format - extract and trim whitespace
-        port=$(echo "$panel_info" | grep "^port:" | cut -d: -f2 | tr -d '[:space:]')
-        listen=$(echo "$panel_info" | grep "^listen:" | cut -d: -f2 | tr -d '[:space:]')
-        protocol=$(echo "$panel_info" | grep "^protocol:" | cut -d: -f2 | tr -d '[:space:]')
-        base_path=$(echo "$panel_info" | grep "^base_path:" | cut -d: -f2 | tr -d '[:space:]')
-    else
-        # -show flag format
-        port=$(echo "$panel_info" | grep -i "Panel Port:" | awk '{print $3}' | tr -d '[:space:]')
-        listen=$(echo "$panel_info" | grep -i "Server IP:" | awk '{print $3}' | tr -d '[:space:]')
-        protocol=$(echo "$panel_info" | grep -i "Access Panel:" | grep -o "http[s]*" | head -1 | tr -d '[:space:]')
-        base_path=$(echo "$panel_info" | grep -i "Access Panel:" | grep -oP '://[^:]+:\d+\K.*' | head -1 | tr -d '[:space:]')
-    fi
-    
-    # Ensure port is valid and numeric
-    if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
-        # Try to get port directly from database as fallback
-        local db_path="/etc/x-ui/x-ui.db"
-        if [[ -f "$db_path" ]] && command -v sqlite3 &> /dev/null; then
-            port=$(sqlite3 "$db_path" "SELECT value FROM setting WHERE key='webPort';" 2>/dev/null | tr -d '[:space:]')
-        fi
-        if [[ -z "$port" ]] || ! [[ "$port" =~ ^[0-9]+$ ]]; then
-            port="54321"  # final fallback
-        fi
-    fi
-    
-    if [[ -n "$port" && "$port" != "0" ]]; then
-        if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]] || [[ "$listen" == "Unknown" ]]; then
-            # Get server IP
-            server_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-            if [[ -z "$server_ip" ]]; then
-                server_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
-            fi
-            if [[ -z "$server_ip" ]]; then
-                server_ip=$(hostname -i 2>/dev/null | awk '{print $1}')
-            fi
-            if [[ -z "$server_ip" ]]; then
-                server_ip="localhost"
-            fi
-        else
-            server_ip="$listen"
-        fi
-        
-        if [[ -z "$protocol" ]]; then
-            protocol="http"
-        fi
-        
-        if [[ -z "$base_path" ]]; then
-            base_path="/"
-        fi
-        
-        echo -e "Web UI URL:       ${green}${protocol}://${server_ip}:${port}${base_path}${plain}"
-    fi
-}
-
 show_status() {
     check_status
     case $? in
@@ -605,7 +383,6 @@ show_status() {
         ;;
     esac
     show_xray_status
-    show_web_ui_url
 }
 
 show_enable_status() {
@@ -740,22 +517,21 @@ show_menu() {
   ${green}4.${plain} Reset username and password
   ${green}5.${plain} Reset panel settings
   ${green}6.${plain} Set panel port
-  ${green}7.${plain} View current panel settings
 ————————————————
-  ${green}8.${plain} Start x-ui
-  ${green}9.${plain} Stop x-ui
-  ${green}10.${plain} Restart x-ui
-  ${green}11.${plain} View x-ui status
-  ${green}12.${plain} View x-ui logs
+  ${green}7.${plain} Start x-ui
+  ${green}8.${plain} Stop x-ui
+  ${green}9.${plain} Restart x-ui
+  ${green}10.${plain} View x-ui status
+  ${green}11.${plain} View x-ui logs
 ————————————————
-  ${green}13.${plain} Enable x-ui auto-start on boot
-  ${green}14.${plain} Disable x-ui auto-start on boot
+  ${green}12.${plain} Enable x-ui auto-start on boot
+  ${green}13.${plain} Disable x-ui auto-start on boot
 ————————————————
-  ${green}15.${plain} One-click install BBR (latest kernel)
-  ${green}16.${plain} One-click apply SSL certificate (via acme)
+  ${green}14.${plain} One-click install BBR (latest kernel)
+  ${green}15.${plain} One-click apply SSL certificate (via acme)
  "
     show_status
-    echo && read -p "Please enter your choice [0-16]: " num
+    echo && read -p "Please enter your choice [0-15]: " num
 
     case "${num}" in
     0)
@@ -780,37 +556,34 @@ show_menu() {
         check_install && set_port
         ;;
     7)
-        check_install && check_config
-        ;;
-    8)
         check_install && start
         ;;
-    9)
+    8)
         check_install && stop
         ;;
-    10)
+    9)
         check_install && restart
         ;;
-    11)
+    10)
         check_install && status
         ;;
-    12)
+    11)
         check_install && show_log
         ;;
-    13)
+    12)
         check_install && enable
         ;;
-    14)
+    13)
         check_install && disable
         ;;
-    15)
+    14)
         install_bbr
         ;;
-    16)
+    15)
         ssl_cert_issue
         ;;
     *)
-        LOGE "Please enter a valid number [0-16]"
+        LOGE "Please enter a valid number [0-15]"
         ;;
     esac
 }

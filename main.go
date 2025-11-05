@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -51,10 +50,6 @@ func runWebServer() {
 		return
 	}
 
-	// Display panel status after server starts
-	settingService := service.SettingService{}
-	displayPanelStatus(settingService)
-
 	sigCh := make(chan os.Signal, 1)
 	// Signal capture handling
 	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGKILL)
@@ -97,17 +92,6 @@ func resetSetting() {
 	}
 }
 
-func showSetting(show bool) {
-	if show {
-		err := database.InitDB(config.GetDBPath())
-		if err != nil {
-			fmt.Println("init database failed:", err)
-			return
-		}
-		settingService := service.SettingService{}
-		displayPanelStatus(settingService)
-	}
-}
 
 func updateTgbotEnableSts(status bool) {
 	settingService := service.SettingService{}
@@ -169,103 +153,6 @@ func updateTgbotSetting(tgBotToken string, tgBotChatid int, tgBotRuntime string)
 	}
 }
 
-func getServerIP() string {
-	netInterfaces, err := net.Interfaces()
-	if err != nil {
-		return "Unknown"
-	}
-
-	for i := 0; i < len(netInterfaces); i++ {
-		if (netInterfaces[i].Flags & net.FlagUp) != 0 {
-			addrs, _ := netInterfaces[i].Addrs()
-
-			for _, address := range addrs {
-				if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-					if ipnet.IP.To4() != nil {
-						return ipnet.IP.String()
-					}
-				}
-			}
-		}
-	}
-	return "Unknown"
-}
-
-func displayPanelStatus(settingService service.SettingService) {
-	fmt.Println()
-	fmt.Println("==========================================")
-	fmt.Println("     Panel Service Status")
-	fmt.Println("==========================================")
-	
-	// Get listen address
-	listen, err := settingService.GetListen()
-	if err != nil {
-		listen = "0.0.0.0"
-	}
-	if listen == "" {
-		listen = "0.0.0.0"
-	}
-	
-	// Get port
-	port, err := settingService.GetPort()
-	if err != nil {
-		port = 54321
-	}
-	
-	// Get server IP
-	serverIP := getServerIP()
-	if listen != "0.0.0.0" && listen != "" {
-		serverIP = listen
-	}
-	
-	// Get user info
-	userService := service.UserService{}
-	userModel, err := userService.GetFirstUser()
-	username := "Not set"
-	if err == nil && userModel.Username != "" {
-		username = userModel.Username
-	}
-	
-	// Get xray status
-	xrayService := service.XrayService{}
-	xrayRunning := xrayService.IsXrayRunning()
-	xrayStatus := "Stopped"
-	if xrayRunning {
-		xrayStatus = "Running"
-	}
-	
-	fmt.Printf("Panel Status:     Running\n")
-	fmt.Printf("Xray Status:      %s\n", xrayStatus)
-	fmt.Printf("Server IP:       %s\n", serverIP)
-	fmt.Printf("Panel Port:       %d\n", port)
-	fmt.Printf("Username:        %s\n", username)
-	
-	// Determine protocol
-	certFile, _ := settingService.GetCertFile()
-	keyFile, _ := settingService.GetKeyFile()
-	protocol := "http"
-	if certFile != "" || keyFile != "" {
-		protocol = "https"
-	}
-	
-	// Get base path
-	basePath, _ := settingService.GetBasePath()
-	if basePath == "" {
-		basePath = "/"
-	}
-	
-	fmt.Println()
-	fmt.Println("Access Panel:")
-	if listen == "0.0.0.0" || listen == "" {
-		fmt.Printf("  Local:   %s://localhost:%d%s\n", protocol, port, basePath)
-		fmt.Printf("  Network: %s://%s:%d%s\n", protocol, serverIP, port, basePath)
-	} else {
-		fmt.Printf("  %s://%s:%d%s\n", protocol, serverIP, port, basePath)
-	}
-	fmt.Println("==========================================")
-	fmt.Println()
-}
-
 func updateSetting(port int, username string, password string) {
 	err := database.InitDB(config.GetDBPath())
 	if err != nil {
@@ -274,7 +161,6 @@ func updateSetting(port int, username string, password string) {
 	}
 
 	settingService := service.SettingService{}
-	hasChanges := false
 
 	if port > 0 {
 		err := settingService.SetPort(port)
@@ -282,7 +168,6 @@ func updateSetting(port int, username string, password string) {
 			fmt.Println("set port failed:", err)
 		} else {
 			fmt.Printf("set port %v success\n", port)
-			hasChanges = true
 		}
 	}
 	if username != "" || password != "" {
@@ -292,12 +177,7 @@ func updateSetting(port int, username string, password string) {
 			fmt.Println("set username and password failed:", err)
 		} else {
 			fmt.Println("set username and password success")
-			hasChanges = true
 		}
-	}
-	
-	if hasChanges {
-		displayPanelStatus(settingService)
 	}
 }
 
@@ -325,9 +205,7 @@ func main() {
 	var enabletgbot bool
 	var tgbotRuntime string
 	var reset bool
-	var show bool
 	settingCmd.BoolVar(&reset, "reset", false, "reset all settings")
-	settingCmd.BoolVar(&show, "show", false, "show current settings")
 	settingCmd.IntVar(&port, "port", 0, "set panel port")
 	settingCmd.StringVar(&username, "username", "", "set login username")
 	settingCmd.StringVar(&password, "password", "", "set login password")
@@ -335,20 +213,6 @@ func main() {
 	settingCmd.StringVar(&tgbotRuntime, "tgbotRuntime", "", "set telegrame bot cron time")
 	settingCmd.IntVar(&tgbotchatid, "tgbotchatid", 0, "set telegrame bot chat id")
 	settingCmd.BoolVar(&enabletgbot, "enabletgbot", false, "enable telegram bot notify")
-	
-	// Custom usage for setting command
-	settingCmd.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage of setting:\n")
-		fmt.Fprintf(os.Stderr, "  -enabletgbot\n        enable telegram bot notify\n")
-		fmt.Fprintf(os.Stderr, "  -password string\n        set login password\n")
-		fmt.Fprintf(os.Stderr, "  -port int\n        set panel port\n")
-		fmt.Fprintf(os.Stderr, "  -reset\n        reset all settings\n")
-		fmt.Fprintf(os.Stderr, "  -show\n        show current settings\n")
-		fmt.Fprintf(os.Stderr, "  -tgbotchatid int\n        set telegrame bot chat id\n")
-		fmt.Fprintf(os.Stderr, "  -tgbottoken string\n        set telegrame bot token\n")
-		fmt.Fprintf(os.Stderr, "  -tgbotRuntime string\n        set telegrame bot cron time\n")
-		fmt.Fprintf(os.Stderr, "  -username string\n        set login username\n")
-	}
 
 	oldUsage := flag.Usage
 	flag.Usage = func() {
@@ -394,9 +258,6 @@ func main() {
 			resetSetting()
 		} else if port > 0 || username != "" || password != "" {
 			updateSetting(port, username, password)
-		}
-		if show {
-			showSetting(show)
 		}
 		if (tgbottoken != "") || (tgbotchatid != 0) || (tgbotRuntime != "") {
 			updateTgbotSetting(tgbottoken, tgbotchatid, tgbotRuntime)

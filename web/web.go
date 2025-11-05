@@ -374,8 +374,6 @@ func (s *Server) Start() (err error) {
 	} else {
 		logger.Info("web server run http on", listener.Addr())
 	}
-	basePath, _ := s.settingService.GetBasePath()
-	logger.Info("WebSocket endpoint available at:", basePath+"server/logs/ws")
 	s.listener = listener
 
 	s.startTask()
