@@ -172,7 +172,7 @@ reset_config() {
 }
 
 check_config() {
-    info=$(/usr/local/x-ui/x-ui setting -show true)
+    info=$(/usr/local/x-ui/x-ui setting -show)
     if [[ $? != 0 ]]; then
         LOGE "get current settings error,please check logs"
         show_menu
