@@ -172,12 +172,42 @@ reset_config() {
 }
 
 check_config() {
-    info=$(/usr/local/x-ui/x-ui setting -show)
-    if [[ $? != 0 ]]; then
-        LOGE "get current settings error,please check logs"
-        show_menu
+    info=$(/usr/local/x-ui/x-ui setting -show 2>&1)
+    exit_code=$?
+    
+    if [[ $exit_code != 0 ]]; then
+        # Check if it's the flag error
+        if echo "$info" | grep -q "flag provided but not defined"; then
+            LOGE "The -show flag is not available in this version."
+            LOGE "Please update x-ui to the latest version to use this feature."
+            echo ""
+            LOGI "Trying alternative method..."
+            # Fallback: try to get basic info
+            port=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null | grep -i "port" | head -1 || echo "")
+            if [[ -z "$port" ]]; then
+                LOGE "Unable to retrieve panel settings. Please check if x-ui is properly installed."
+            fi
+        else
+            LOGE "get current settings error, please check logs"
+            echo "$info"
+        fi
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
     fi
-    LOGI "${info}"
+    
+    if [[ -z "$info" ]]; then
+        LOGE "No settings information returned"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
+    fi
+    
+    echo ""
+    echo "$info"
+    echo ""
 }
 
 set_port() {
@@ -363,6 +393,60 @@ check_install() {
     fi
 }
 
+get_panel_info() {
+    if [[ ! -f /usr/local/x-ui/x-ui ]]; then
+        return 1
+    fi
+    
+    info=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null)
+    if [[ $? == 0 && -n "$info" ]]; then
+        echo "$info"
+        return 0
+    fi
+    return 1
+}
+
+show_web_ui_url() {
+    check_status
+    if [[ $? != 0 ]]; then
+        return
+    fi
+    
+    panel_info=$(get_panel_info)
+    if [[ $? == 0 ]]; then
+        # Extract port, IP, and protocol from panel info
+        port=$(echo "$panel_info" | grep -i "Panel Port:" | awk '{print $3}')
+        listen=$(echo "$panel_info" | grep -i "Server IP:" | awk '{print $3}')
+        protocol=$(echo "$panel_info" | grep -i "Access Panel:" | grep -o "http[s]*" | head -1)
+        
+        if [[ -n "$port" && "$port" != "0" ]]; then
+            if [[ "$listen" == "0.0.0.0" ]] || [[ -z "$listen" ]] || [[ "$listen" == "Unknown" ]]; then
+                # Get server IP
+                server_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+                if [[ -z "$server_ip" ]]; then
+                    server_ip=$(ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \K\S+')
+                fi
+                if [[ -z "$server_ip" ]]; then
+                    server_ip="localhost"
+                fi
+            else
+                server_ip="$listen"
+            fi
+            
+            if [[ -z "$protocol" ]]; then
+                protocol="http"
+            fi
+            
+            base_path=$(echo "$panel_info" | grep -i "Access Panel:" | grep -oP '://[^:]+:\d+\K.*' | head -1)
+            if [[ -z "$base_path" ]]; then
+                base_path="/"
+            fi
+            
+            echo -e "Web UI URL:       ${green}${protocol}://${server_ip}:${port}${base_path}${plain}"
+        fi
+    fi
+}
+
 show_status() {
     check_status
     case $? in
@@ -379,6 +463,7 @@ show_status() {
         ;;
     esac
     show_xray_status
+    show_web_ui_url
 }
 
 show_enable_status() {

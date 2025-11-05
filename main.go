@@ -335,6 +335,20 @@ func main() {
 	settingCmd.StringVar(&tgbotRuntime, "tgbotRuntime", "", "set telegrame bot cron time")
 	settingCmd.IntVar(&tgbotchatid, "tgbotchatid", 0, "set telegrame bot chat id")
 	settingCmd.BoolVar(&enabletgbot, "enabletgbot", false, "enable telegram bot notify")
+	
+	// Custom usage for setting command
+	settingCmd.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of setting:\n")
+		fmt.Fprintf(os.Stderr, "  -enabletgbot\n        enable telegram bot notify\n")
+		fmt.Fprintf(os.Stderr, "  -password string\n        set login password\n")
+		fmt.Fprintf(os.Stderr, "  -port int\n        set panel port\n")
+		fmt.Fprintf(os.Stderr, "  -reset\n        reset all settings\n")
+		fmt.Fprintf(os.Stderr, "  -show\n        show current settings\n")
+		fmt.Fprintf(os.Stderr, "  -tgbotchatid int\n        set telegrame bot chat id\n")
+		fmt.Fprintf(os.Stderr, "  -tgbottoken string\n        set telegrame bot token\n")
+		fmt.Fprintf(os.Stderr, "  -tgbotRuntime string\n        set telegrame bot cron time\n")
+		fmt.Fprintf(os.Stderr, "  -username string\n        set login username\n")
+	}
 
 	oldUsage := flag.Usage
 	flag.Usage = func() {
