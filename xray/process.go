@@ -153,12 +153,12 @@ func (p *process) Start() (err error) {
 
 	data, err := json.MarshalIndent(p.config, "", "  ")
 	if err != nil {
-		return common.NewErrorf("生成 xray 配置文件失败: %v", err)
+		return common.NewErrorf("Failed to generate xray config file: %v", err)
 	}
 	configPath := GetConfigPath()
 	err = os.WriteFile(configPath, data, fs.ModePerm)
 	if err != nil {
-		return common.NewErrorf("写入配置文件失败: %v", err)
+		return common.NewErrorf("Failed to write config file: %v", err)
 	}
 
 	cmd := exec.Command(GetBinaryPath(), "-c", configPath)
