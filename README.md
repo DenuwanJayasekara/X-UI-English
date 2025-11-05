@@ -1,2 +1,2 @@
 # X-UI-English
-This is the Translation of X-UI  English Web Panel
+This is the English Translation of X-UI Web Panel
