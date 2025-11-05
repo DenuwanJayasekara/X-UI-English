@@ -1,10 +1,14 @@
 package controller
 
 import (
-	"github.com/gin-gonic/gin"
+	"net/http"
 	"time"
+	"x-ui/logger"
 	"x-ui/web/global"
 	"x-ui/web/service"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 type ServerController struct {
@@ -35,6 +39,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/status", a.status)
 	g.POST("/getXrayVersion", a.getXrayVersion)
 	g.POST("/installXray/:version", a.installXray)
+	g.GET("/logs/ws", a.xrayLogsWebSocket)
 }
 
 func (a *ServerController) refreshStatus() {
@@ -82,4 +87,56 @@ func (a *ServerController) installXray(c *gin.Context) {
 	version := c.Param("version")
 	err := a.serverService.UpdateXray(version)
 	jsonMsg(c, "Install xray", err)
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+func (a *ServerController) xrayLogsWebSocket(c *gin.Context) {
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		logger.Error("websocket upgrade failed:", err)
+		return
+	}
+	defer conn.Close()
+
+	xrayService := service.XrayService{}
+	process := xrayService.GetXrayProcess()
+	if process == nil || !process.IsRunning() {
+		conn.WriteMessage(websocket.TextMessage, []byte("Xray is not running\n"))
+		return
+	}
+
+	logger.Info("WebSocket connection established for xray logs streaming")
+	
+	lines := process.GetLines()
+	lastSize := lines.Len()
+	
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			currentSize := lines.Len()
+			if currentSize > lastSize {
+				// Get new lines
+				newLines := process.GetNewLines(lastSize)
+				for _, line := range newLines {
+					err := conn.WriteMessage(websocket.TextMessage, []byte(line+"\n"))
+					if err != nil {
+						logger.Warning("websocket write error:", err)
+						return
+					}
+				}
+				lastSize = currentSize
+			}
+		case <-c.Request.Context().Done():
+			logger.Info("WebSocket connection closed")
+			return
+		}
+	}
 }

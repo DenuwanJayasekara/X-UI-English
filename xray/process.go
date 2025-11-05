@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"x-ui/logger"
 	"x-ui/util/common"
 
 	"github.com/Workiva/go-datastructures/queue"
@@ -104,6 +105,35 @@ func (p *process) GetResult() string {
 	return strings.Join(lines, "\n")
 }
 
+func (p *process) GetLines() *queue.Queue {
+	return p.lines
+}
+
+func (p *process) GetNewLines(lastCount int) []string {
+	currentSize := p.lines.Len()
+	if currentSize <= lastCount {
+		return []string{}
+	}
+	
+	count := currentSize - lastCount
+	if count > 100 {
+		count = 100
+	}
+	
+	items, err := p.lines.Get(count)
+	if err != nil {
+		return []string{}
+	}
+	
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		if line, ok := item.(string); ok {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
 func (p *process) GetVersion() string {
 	return p.version
 }
@@ -184,10 +214,13 @@ func (p *process) Start() (err error) {
 			if err != nil {
 				return
 			}
+			lineStr := string(line)
+			// Log to terminal
+			logger.Info("[xray]", lineStr)
 			if p.lines.Len() >= 100 {
 				p.lines.Get(1)
 			}
-			p.lines.Put(string(line))
+			p.lines.Put(lineStr)
 		}
 	}()
 
@@ -202,10 +235,13 @@ func (p *process) Start() (err error) {
 			if err != nil {
 				return
 			}
+			lineStr := string(line)
+			// Log to terminal
+			logger.Warning("[xray]", lineStr)
 			if p.lines.Len() >= 100 {
 				p.lines.Get(1)
 			}
-			p.lines.Put(string(line))
+			p.lines.Put(lineStr)
 		}
 	}()
 

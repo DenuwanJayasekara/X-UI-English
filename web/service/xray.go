@@ -125,3 +125,7 @@ func (s *XrayService) SetToNeedRestart() {
 func (s *XrayService) IsNeedRestartAndSetFalse() bool {
 	return isNeedXrayRestart.CAS(true, false)
 }
+
+func (s *XrayService) GetXrayProcess() *xray.Process {
+	return p
+}
