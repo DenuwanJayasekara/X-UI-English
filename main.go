@@ -99,25 +99,13 @@ func resetSetting() {
 
 func showSetting(show bool) {
 	if show {
+		err := database.InitDB(config.GetDBPath())
+		if err != nil {
+			fmt.Println("init database failed:", err)
+			return
+		}
 		settingService := service.SettingService{}
-		port, err := settingService.GetPort()
-		if err != nil {
-			fmt.Println("get current port fialed,error info:", err)
-		}
-		userService := service.UserService{}
-		userModel, err := userService.GetFirstUser()
-		if err != nil {
-			fmt.Println("get current user info failed,error info:", err)
-		}
-		username := userModel.Username
-		userpasswd := userModel.Password
-		if (username == "") || (userpasswd == "") {
-			fmt.Println("current username or password is empty")
-		}
-		fmt.Println("current pannel settings as follows:")
-		fmt.Println("username:", username)
-		fmt.Println("userpasswd:", userpasswd)
-		fmt.Println("port:", port)
+		displayPanelStatus(settingService)
 	}
 }
 
@@ -390,7 +378,7 @@ func main() {
 		}
 		if reset {
 			resetSetting()
-		} else {
+		} else if port > 0 || username != "" || password != "" {
 			updateSetting(port, username, password)
 		}
 		if show {
